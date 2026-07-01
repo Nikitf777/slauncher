@@ -2,8 +2,8 @@ use actix_web::{post, web, HttpResponse};
 use sea_orm::DatabaseConnection;
 use std::path::PathBuf;
 
-use crate::entities::server;
-use crate::forge;
+use crate::entities::server::{self, ServerType};
+use crate::{fabric, forge};
 use crate::models::{CreateServerRequest, ServerResponse};
 use crate::repository;
 
@@ -75,6 +75,47 @@ async fn write_eula(server: &server::Model) -> HttpResponse {
     }
 }
 
+/// Install a server according to its type.  On failure returns an `HttpResponse`
+/// that the caller should send back (the caller is responsible for cleanup).
+async fn install_server(
+    req: &CreateServerRequest,
+    server_dir: &PathBuf,
+) -> Result<(), HttpResponse> {
+    match req.server_type {
+        ServerType::Forge => install_forge(req, server_dir).await,
+        ServerType::Fabric => install_fabric(req, server_dir).await,
+        _ => Err(HttpResponse::BadRequest()
+            .body(format!("Unsupported server type: {:?}", req.server_type))),
+    }
+}
+
+async fn install_forge(req: &CreateServerRequest, server_dir: &PathBuf) -> Result<(), HttpResponse> {
+    let combined = format!("{}-{}", req.minecraft_version, req.loader_version);
+    let installer_filename = format!("forge-{}-installer.jar", combined);
+    let installer_path = server_dir.join(&installer_filename);
+
+    let url = forge::installer_url(&combined);
+    log::info!("Downloading {url} …");
+    forge::download(&url, &installer_path)
+        .await
+        .map_err(|e| HttpResponse::BadGateway().body(format!("Download failed: {e}")))?;
+
+    log::info!("Running Forge installer …");
+    forge::run_installer(server_dir, &installer_filename)
+        .await
+        .map_err(|e| HttpResponse::InternalServerError().body(format!("Installation failed: {e}")))?;
+
+    // Remove the installer jar (keeps the server dir tidy)
+    let _ = tokio::fs::remove_file(&installer_path).await;
+    Ok(())
+}
+
+async fn install_fabric(req: &CreateServerRequest, server_dir: &PathBuf) -> Result<(), HttpResponse> {
+    fabric::setup_server(server_dir, &req.minecraft_version, &req.loader_version)
+        .await
+        .map_err(|e| HttpResponse::BadGateway().body(e))
+}
+
 // ---------------------------------------------------------------------------
 // Route handlers
 // ---------------------------------------------------------------------------
@@ -90,53 +131,45 @@ pub async fn create_server(
         Err(e) => return HttpResponse::BadRequest().body(e),
     };
 
-    // 2. Build paths
-    let server_dir = PathBuf::from(SERVERS_DIR).join(&name);
-    let installer_filename = format!("forge-{}-installer.jar", body.version);
-    let installer_path = server_dir.join(&installer_filename);
-
-    // 3. Check server does not already exist
+    // 2. Check server does not already exist
     match repository::exists_by_name(db.get_ref(), &name).await {
         Ok(true) => return HttpResponse::Conflict().body("A server with this name already exists"),
         Ok(false) => {}
         Err(e) => return db_error(e),
     }
 
-    // 4. Create the server directory
+    // 3. Create the server directory
+    let server_dir = PathBuf::from(SERVERS_DIR).join(&name);
     if let Err(e) = tokio::fs::create_dir_all(&server_dir).await {
         return HttpResponse::InternalServerError()
             .body(format!("Failed to create directory: {e}"));
     }
 
-    // 5. Download the Forge installer
-    let url = forge::installer_url(&body.version);
-    log::info!("Downloading {url} …");
-    if let Err(e) = forge::download(&url, &installer_path).await {
-        let _ = tokio::fs::remove_dir(&server_dir).await;
-        return HttpResponse::BadGateway().body(format!("Download failed: {e}"));
-    }
-
-    // 6. Run the Forge installer
-    log::info!("Running Forge installer …");
-    if let Err(e) = forge::run_installer(&server_dir, &installer_filename).await {
+    // 4. Install the server according to its type
+    if let Err(e) = install_server(&body, &server_dir).await {
         let _ = tokio::fs::remove_dir_all(&server_dir).await;
-        return HttpResponse::InternalServerError().body(format!("Installation failed: {e}"));
+        return e;
     }
 
-    // 7. Remove the installer jar (keeps the server dir tidy)
-    let _ = tokio::fs::remove_file(&installer_path).await;
-
-    // 8. Insert into database
+    // 5. Insert into database
     let server_type = body.server_type.clone();
-    let version = body.version.clone();
-    match repository::create(db.get_ref(), &name, server_type, &version).await {
+    match repository::create(
+        db.get_ref(),
+        &name,
+        server_type,
+        &body.minecraft_version,
+        &body.loader_version,
+    )
+    .await
+    {
         Ok(model) => {
             log::info!("Created server '{}' (id={})", model.name, model.id);
             HttpResponse::Created().json(ServerResponse {
                 id: model.id,
                 name: model.name,
                 server_type: model.server_type,
-                version: model.version,
+                minecraft_version: model.minecraft_version,
+                loader_version: model.loader_version,
             })
         }
         Err(e) => {

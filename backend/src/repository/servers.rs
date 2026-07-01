@@ -36,18 +36,20 @@ pub async fn exists_by_name(db: &DatabaseConnection, name: &str) -> Result<bool,
 // Mutations
 // ---------------------------------------------------------------------------
 
-/// Insert a new server with the given name, type and version and return the persisted
-/// model (with the auto-generated id populated).
+/// Insert a new server and return the persisted model (with the auto-generated id
+/// populated).
 pub async fn create(
     db: &DatabaseConnection,
     name: &str,
     server_type: server::ServerType,
-    version: &str,
+    minecraft_version: &str,
+    loader_version: &str,
 ) -> Result<server::Model, DbErr> {
     let model = server::ActiveModel {
         name: Set(name.to_owned()),
         server_type: Set(server_type),
-        version: Set(version.to_owned()),
+        minecraft_version: Set(minecraft_version.to_owned()),
+        loader_version: Set(loader_version.to_owned()),
         ..Default::default()
     };
     model.insert(db).await

@@ -2,6 +2,7 @@ use actix_web::{web, App, HttpServer};
 
 mod db;
 mod entities;
+mod fabric;
 mod forge;
 mod models;
 mod repository;
