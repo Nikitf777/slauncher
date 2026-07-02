@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use crate::entities::server::{self, ServerType};
 use crate::{fabric, forge};
-use crate::models::{CreateServerRequest, ServerResponse};
+use crate::models::{CreateServerRequest, ServerProperties, ServerResponse};
 use crate::repository;
 
 /// Base directory where all server folders live.
@@ -210,4 +210,130 @@ pub async fn accept_eula_by_id(
     };
 
     write_eula(&server).await
+}
+
+// ---------------------------------------------------------------------------
+// Configure server properties
+// ---------------------------------------------------------------------------
+
+/// Apply in-memory property updates to a `server.properties` file on disk.
+///
+/// Reads the existing file, overwrites values for keys present in `updates`,
+/// and appends any keys that are not already in the file.
+fn apply_properties(content: &str, updates: &[(&str, String)]) -> String {
+    // quick lookup for keys we care about
+    let update_map: std::collections::HashMap<&str, &str> =
+        updates.iter().map(|(k, v)| (*k, v.as_str())).collect();
+
+    let mut seen = std::collections::HashSet::new();
+    let mut out = String::new();
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            out.push_str(line);
+            out.push('\n');
+            continue;
+        }
+        if let Some(eq_pos) = line.find('=') {
+            let key = &line[..eq_pos];
+            if let Some(new_val) = update_map.get(key) {
+                seen.insert(key);
+                out.push_str(key);
+                out.push('=');
+                out.push_str(new_val);
+                out.push('\n');
+            } else {
+                out.push_str(line);
+                out.push('\n');
+            }
+        } else {
+            // malformed line – preserve as-is
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+
+    // Append keys that were not found in the file
+    for (key, val) in updates {
+        if !seen.contains(key) {
+            out.push_str(key);
+            out.push('=');
+            out.push_str(val);
+            out.push('\n');
+        }
+    }
+
+    out
+}
+
+async fn configure_properties(
+    server: &server::Model,
+    body: web::Json<ServerProperties>,
+) -> HttpResponse {
+    if let Err(e) = body.validate() {
+        return HttpResponse::BadRequest().body(e);
+    }
+
+    let properties_path = PathBuf::from(SERVERS_DIR)
+        .join(&server.name)
+        .join("server.properties");
+
+    let content = match tokio::fs::read_to_string(&properties_path).await {
+        Ok(c) => c,
+        Err(e) => {
+            return HttpResponse::InternalServerError()
+                .body(format!("Failed to read server.properties: {e}"))
+        }
+    };
+
+    let updates = body.to_updates();
+    if updates.is_empty() {
+        return HttpResponse::Ok().body("No properties to update");
+    }
+
+    let new_content = apply_properties(&content, &updates);
+
+    if let Err(e) = tokio::fs::write(&properties_path, &new_content).await {
+        return HttpResponse::InternalServerError()
+            .body(format!("Failed to write server.properties: {e}"));
+    }
+
+    log::info!("Updated properties for server '{}'", server.name);
+    HttpResponse::Ok().body("Properties updated")
+}
+
+#[post("/api/servers/by-name/{name}/properties")]
+pub async fn configure_properties_by_name(
+    path: web::Path<String>,
+    db: web::Data<DatabaseConnection>,
+    body: web::Json<ServerProperties>,
+) -> HttpResponse {
+    let name = match sanitise_name(&path.into_inner()) {
+        Ok(n) => n,
+        Err(e) => return HttpResponse::BadRequest().body(e),
+    };
+
+    let server = match find_server_by_name(&name, db.get_ref()).await {
+        Ok(s) => s,
+        Err(resp) => return resp,
+    };
+
+    configure_properties(&server, body).await
+}
+
+#[post("/api/servers/by-id/{id}/properties")]
+pub async fn configure_properties_by_id(
+    path: web::Path<i32>,
+    db: web::Data<DatabaseConnection>,
+    body: web::Json<ServerProperties>,
+) -> HttpResponse {
+    let id = path.into_inner();
+
+    let server = match find_server_by_id(id, db.get_ref()).await {
+        Ok(s) => s,
+        Err(resp) => return resp,
+    };
+
+    configure_properties(&server, body).await
 }
