@@ -23,7 +23,7 @@ pub struct ServerResponse {
     pub loader_version: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct ServerProperties {
     pub accepts_transfers: Option<bool>,
@@ -104,6 +104,125 @@ pub struct ServerProperties {
 }
 
 impl ServerProperties {
+    /// Parse a `.properties` file content into a `ServerProperties` struct.
+    /// Unknown keys are silently ignored.
+    pub fn from_str(content: &str) -> Self {
+        use std::collections::HashMap;
+
+        let mut map: HashMap<&str, &str> = HashMap::new();
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                continue;
+            }
+            if let Some(eq_pos) = trimmed.find('=') {
+                let key = &trimmed[..eq_pos];
+                let val = &trimmed[eq_pos + 1..];
+                map.insert(key, val);
+            }
+        }
+
+        macro_rules! get_bool {
+            ($key:expr) => {
+                map.get($key).and_then(|v| match *v {
+                    "true" => Some(true),
+                    "false" => Some(false),
+                    _ => None,
+                })
+            };
+        }
+        macro_rules! get_int {
+            ($key:expr) => {
+                map.get($key).and_then(|v| v.parse::<i32>().ok())
+            };
+        }
+        macro_rules! get_u16 {
+            ($key:expr) => {
+                map.get($key).and_then(|v| v.parse::<u16>().ok())
+            };
+        }
+        macro_rules! get_str {
+            ($key:expr) => {
+                map.get($key).map(|v| v.to_string())
+            };
+        }
+
+        ServerProperties {
+            accepts_transfers: get_bool!("accepts-transfers"),
+            allow_flight: get_bool!("allow-flight"),
+            allow_nether: get_bool!("allow-nether"),
+            broadcast_console_to_ops: get_bool!("broadcast-console-to-ops"),
+            broadcast_rcon_to_ops: get_bool!("broadcast-rcon-to-ops"),
+            bug_report_link: get_str!("bug-report-link"),
+            chat_spam_threshold_seconds: get_int!("chat-spam-threshold-seconds"),
+            command_spam_threshold_seconds: get_int!("command-spam-threshold-seconds"),
+            difficulty: get_str!("difficulty"),
+            enable_command_block: get_bool!("enable-command-block"),
+            enable_jmx_monitoring: get_bool!("enable-jmx-monitoring"),
+            enable_query: get_bool!("enable-query"),
+            enable_rcon: get_bool!("enable-rcon"),
+            enable_status: get_bool!("enable-status"),
+            enforce_secure_profile: get_bool!("enforce-secure-profile"),
+            enforce_whitelist: get_bool!("enforce-whitelist"),
+            entity_broadcast_range_percentage: get_int!("entity-broadcast-range-percentage"),
+            force_gamemode: get_bool!("force-gamemode"),
+            function_permission_level: get_int!("function-permission-level"),
+            gamemode: get_str!("gamemode"),
+            generate_structures: get_bool!("generate-structures"),
+            generator_settings: get_str!("generator-settings"),
+            hardcore: get_bool!("hardcore"),
+            hide_online_players: get_bool!("hide-online-players"),
+            initial_disabled_packs: get_str!("initial-disabled-packs"),
+            initial_enabled_packs: get_str!("initial-enabled-packs"),
+            level_name: get_str!("level-name"),
+            level_seed: get_str!("level-seed"),
+            level_type: get_str!("level-type"),
+            log_ips: get_bool!("log-ips"),
+            management_server_allowed_origins: get_str!("management-server-allowed-origins"),
+            management_server_enabled: get_bool!("management-server-enabled"),
+            management_server_host: get_str!("management-server-host"),
+            management_server_port: get_int!("management-server-port"),
+            management_server_secret: get_str!("management-server-secret"),
+            management_server_tls_enabled: get_bool!("management-server-tls-enabled"),
+            management_server_tls_keystore: get_str!("management-server-tls-keystore"),
+            management_server_tls_keystore_password: get_str!("management-server-tls-keystore-password"),
+            max_chained_neighbor_updates: get_int!("max-chained-neighbor-updates"),
+            max_players: get_int!("max-players"),
+            max_tick_time: get_int!("max-tick-time"),
+            max_world_size: get_int!("max-world-size"),
+            motd: get_str!("motd"),
+            network_compression_threshold: get_int!("network-compression-threshold"),
+            online_mode: get_bool!("online-mode"),
+            op_permission_level: get_int!("op-permission-level"),
+            pause_when_empty_seconds: get_int!("pause-when-empty-seconds"),
+            player_idle_timeout: get_int!("player-idle-timeout"),
+            prevent_proxy_connections: get_bool!("prevent-proxy-connections"),
+            query_port: get_u16!("query.port"),
+            rate_limit: get_int!("rate-limit"),
+            rcon_password: get_str!("rcon.password"),
+            rcon_port: get_u16!("rcon.port"),
+            region_file_compression: get_str!("region-file-compression"),
+            require_resource_pack: get_bool!("require-resource-pack"),
+            resource_pack: get_str!("resource-pack"),
+            resource_pack_id: get_str!("resource-pack-id"),
+            resource_pack_prompt: get_str!("resource-pack-prompt"),
+            resource_pack_sha1: get_str!("resource-pack-sha1"),
+            server_ip: get_str!("server-ip"),
+            server_port: get_u16!("server-port"),
+            simulation_distance: get_int!("simulation-distance"),
+            spawn_monsters: get_bool!("spawn-monsters"),
+            spawn_protection: get_int!("spawn-protection"),
+            status_heartbeat_interval: get_int!("status-heartbeat-interval"),
+            sync_chunk_writes: get_bool!("sync-chunk-writes"),
+            text_filtering_config: get_str!("text-filtering-config"),
+            text_filtering_version: get_int!("text-filtering-version"),
+            use_native_transport: get_bool!("use-native-transport"),
+            view_distance: get_int!("view-distance"),
+            white_list: get_bool!("white-list"),
+            pvp: get_bool!("pvp"),
+        }
+    }
+
     pub fn validate(&self) -> Result<(), String> {
         let ports: [(&str, Option<u16>); 3] = [
             ("server-port", self.server_port),

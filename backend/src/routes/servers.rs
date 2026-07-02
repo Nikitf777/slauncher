@@ -1,4 +1,4 @@
-use actix_web::{post, web, HttpResponse};
+use actix_web::{get, post, web, HttpResponse};
 use sea_orm::DatabaseConnection;
 use std::path::PathBuf;
 
@@ -336,4 +336,58 @@ pub async fn configure_properties_by_id(
     };
 
     configure_properties(&server, body).await
+}
+
+// ---------------------------------------------------------------------------
+// Get server properties
+// ---------------------------------------------------------------------------
+
+async fn read_properties(server: &server::Model) -> HttpResponse {
+    let properties_path = PathBuf::from(SERVERS_DIR)
+        .join(&server.name)
+        .join("server.properties");
+
+    let content = match tokio::fs::read_to_string(&properties_path).await {
+        Ok(c) => c,
+        Err(e) => {
+            return HttpResponse::InternalServerError()
+                .body(format!("Failed to read server.properties: {e}"))
+        }
+    };
+
+    let props = ServerProperties::from_str(&content);
+    HttpResponse::Ok().json(props)
+}
+
+#[get("/api/servers/by-name/{name}/properties")]
+pub async fn get_properties_by_name(
+    path: web::Path<String>,
+    db: web::Data<DatabaseConnection>,
+) -> HttpResponse {
+    let name = match sanitise_name(&path.into_inner()) {
+        Ok(n) => n,
+        Err(e) => return HttpResponse::BadRequest().body(e),
+    };
+
+    let server = match find_server_by_name(&name, db.get_ref()).await {
+        Ok(s) => s,
+        Err(resp) => return resp,
+    };
+
+    read_properties(&server).await
+}
+
+#[get("/api/servers/by-id/{id}/properties")]
+pub async fn get_properties_by_id(
+    path: web::Path<i32>,
+    db: web::Data<DatabaseConnection>,
+) -> HttpResponse {
+    let id = path.into_inner();
+
+    let server = match find_server_by_id(id, db.get_ref()).await {
+        Ok(s) => s,
+        Err(resp) => return resp,
+    };
+
+    read_properties(&server).await
 }

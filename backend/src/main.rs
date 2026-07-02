@@ -26,6 +26,8 @@ async fn main() -> std::io::Result<()> {
             .service(routes::accept_eula_by_id)
             .service(routes::configure_properties_by_name)
             .service(routes::configure_properties_by_id)
+            .service(routes::get_properties_by_name)
+            .service(routes::get_properties_by_id)
     })
     .bind(("127.0.0.1", 8080))?
     .run()
