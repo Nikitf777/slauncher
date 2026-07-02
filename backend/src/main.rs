@@ -1,6 +1,7 @@
 use actix_web::{web, App, HttpServer};
 
 mod db;
+mod dtos;
 mod entities;
 mod fabric;
 mod forge;

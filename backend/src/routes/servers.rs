@@ -4,7 +4,8 @@ use std::path::PathBuf;
 
 use crate::entities::server::{self, ServerType};
 use crate::{fabric, forge};
-use crate::models::{CreateServerRequest, ServerProperties, ServerResponse};
+use crate::dtos::{CreateServerRequest, ServerResponse};
+use crate::models::ServerProperties;
 use crate::repository;
 
 /// Base directory where all server folders live.

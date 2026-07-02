@@ -1,28 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-use crate::entities::server::ServerType;
-
-#[derive(Deserialize)]
-pub struct CreateServerRequest {
-    /// Display name – must match the folder name (alphanumeric + hyphens).
-    pub name: String,
-    /// Mod loader / server type.
-    pub server_type: ServerType,
-    /// Minecraft version, e.g. "1.20.1".
-    pub minecraft_version: String,
-    /// Loader / mod-loader version, e.g. "47.2.0" (Forge) or "0.19.3" (Fabric).
-    pub loader_version: String,
-}
-
-#[derive(Serialize)]
-pub struct ServerResponse {
-    pub id: i32,
-    pub name: String,
-    pub server_type: ServerType,
-    pub minecraft_version: String,
-    pub loader_version: String,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct ServerProperties {
@@ -185,7 +162,9 @@ impl ServerProperties {
             management_server_secret: get_str!("management-server-secret"),
             management_server_tls_enabled: get_bool!("management-server-tls-enabled"),
             management_server_tls_keystore: get_str!("management-server-tls-keystore"),
-            management_server_tls_keystore_password: get_str!("management-server-tls-keystore-password"),
+            management_server_tls_keystore_password: get_str!(
+                "management-server-tls-keystore-password"
+            ),
             max_chained_neighbor_updates: get_int!("max-chained-neighbor-updates"),
             max_players: get_int!("max-players"),
             max_tick_time: get_int!("max-tick-time"),
@@ -273,7 +252,10 @@ impl ServerProperties {
         push_bool!(broadcast_rcon_to_ops, "broadcast-rcon-to-ops");
         push_str!(bug_report_link, "bug-report-link");
         push_int!(chat_spam_threshold_seconds, "chat-spam-threshold-seconds");
-        push_int!(command_spam_threshold_seconds, "command-spam-threshold-seconds");
+        push_int!(
+            command_spam_threshold_seconds,
+            "command-spam-threshold-seconds"
+        );
         push_str!(difficulty, "difficulty");
         push_bool!(enable_command_block, "enable-command-block");
         push_bool!(enable_jmx_monitoring, "enable-jmx-monitoring");
@@ -282,7 +264,10 @@ impl ServerProperties {
         push_bool!(enable_status, "enable-status");
         push_bool!(enforce_secure_profile, "enforce-secure-profile");
         push_bool!(enforce_whitelist, "enforce-whitelist");
-        push_int!(entity_broadcast_range_percentage, "entity-broadcast-range-percentage");
+        push_int!(
+            entity_broadcast_range_percentage,
+            "entity-broadcast-range-percentage"
+        );
         push_bool!(force_gamemode, "force-gamemode");
         push_int!(function_permission_level, "function-permission-level");
         push_str!(gamemode, "gamemode");
@@ -296,20 +281,35 @@ impl ServerProperties {
         push_str!(level_seed, "level-seed");
         push_str!(level_type, "level-type");
         push_bool!(log_ips, "log-ips");
-        push_str!(management_server_allowed_origins, "management-server-allowed-origins");
+        push_str!(
+            management_server_allowed_origins,
+            "management-server-allowed-origins"
+        );
         push_bool!(management_server_enabled, "management-server-enabled");
         push_str!(management_server_host, "management-server-host");
         push_int!(management_server_port, "management-server-port");
         push_str!(management_server_secret, "management-server-secret");
-        push_bool!(management_server_tls_enabled, "management-server-tls-enabled");
-        push_str!(management_server_tls_keystore, "management-server-tls-keystore");
-        push_str!(management_server_tls_keystore_password, "management-server-tls-keystore-password");
+        push_bool!(
+            management_server_tls_enabled,
+            "management-server-tls-enabled"
+        );
+        push_str!(
+            management_server_tls_keystore,
+            "management-server-tls-keystore"
+        );
+        push_str!(
+            management_server_tls_keystore_password,
+            "management-server-tls-keystore-password"
+        );
         push_int!(max_chained_neighbor_updates, "max-chained-neighbor-updates");
         push_int!(max_players, "max-players");
         push_int!(max_tick_time, "max-tick-time");
         push_int!(max_world_size, "max-world-size");
         push_str!(motd, "motd");
-        push_int!(network_compression_threshold, "network-compression-threshold");
+        push_int!(
+            network_compression_threshold,
+            "network-compression-threshold"
+        );
         push_bool!(online_mode, "online-mode");
         push_int!(op_permission_level, "op-permission-level");
         push_int!(pause_when_empty_seconds, "pause-when-empty-seconds");
