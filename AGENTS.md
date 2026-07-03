@@ -8,5 +8,5 @@ Some of the planned features are:
 * Viewing their logs
 * Sending commands to servers
 
-It uses a client-server architecture with a backend built with Rust and Actix Web. Its source code is in the backend/ directory.
+It uses a client-server architecture with a backend built with Rust and Actix Web. Its source code is in the slauncher-backend/ directory.
 For now there are no frontends.
