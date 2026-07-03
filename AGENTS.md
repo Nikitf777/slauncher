@@ -10,3 +10,5 @@ Some of the planned features are:
 
 It uses a client-server architecture with a backend built with Rust and Actix Web. Its source code is in the slauncher-backend/ directory.
 For now there are no frontends.
+
+jj (jujutsu) is primerily used for version control.
