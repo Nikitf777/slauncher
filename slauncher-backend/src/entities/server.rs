@@ -2,7 +2,7 @@ use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
 /// The type / mod-loader of a Minecraft server.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, EnumIter, DeriveActiveEnum)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, EnumIter, DeriveActiveEnum, Hash)]
 #[sea_orm(rs_type = "String", db_type = "String(StringLen::None)")]
 #[serde(rename_all = "lowercase")]
 pub enum ServerType {
@@ -20,7 +20,7 @@ pub enum ServerType {
 	LiteLoader,
 }
 
-#[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
+#[derive(Clone, Debug, PartialEq, DeriveEntityModel, Hash)]
 #[sea_orm(table_name = "servers")]
 pub struct Model {
 	#[sea_orm(primary_key)]
