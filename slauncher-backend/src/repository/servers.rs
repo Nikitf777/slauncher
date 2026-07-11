@@ -40,13 +40,13 @@ pub async fn create(
 	name: &str,
 	server_type: server::ServerType,
 	minecraft_version: &str,
-	loader_version: &str,
+	server_version: &str,
 ) -> Result<server::Model, DbErr> {
 	let model = server::ActiveModel {
 		name: Set(name.to_owned()),
 		server_type: Set(server_type),
 		minecraft_version: Set(minecraft_version.to_owned()),
-		loader_version: Set(loader_version.to_owned()),
+		server_version: Set(server_version.to_owned()),
 		..Default::default()
 	};
 	model.insert(db).await

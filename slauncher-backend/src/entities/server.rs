@@ -28,7 +28,7 @@ pub struct Model {
 	pub name: String,
 	pub server_type: ServerType,
 	pub minecraft_version: String,
-	pub loader_version: String,
+	pub server_version: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

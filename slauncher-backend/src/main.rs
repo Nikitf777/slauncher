@@ -1,13 +1,15 @@
 use actix_web::{App, HttpServer, web};
 
+use crate::services::FileDownloader;
+
 mod db;
 mod dtos;
 mod entities;
-mod fabric;
-mod forge;
 mod models;
 mod repository;
 mod routes;
+mod server_types;
+mod services;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -19,9 +21,12 @@ async fn main() -> std::io::Result<()> {
 	})?;
 	log::info!("Database initialised");
 
+	let file_downloader = FileDownloader::new();
+
 	HttpServer::new(move || {
 		App::new()
 			.app_data(web::Data::new(database.clone()))
+			.app_data(web::Data::new(file_downloader.clone()))
 			.service(routes::create_server)
 			.service(routes::accept_eula_by_name)
 			.service(routes::accept_eula_by_id)

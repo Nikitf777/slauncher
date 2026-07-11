@@ -6,7 +6,9 @@ use crate::dtos::{CreateServerRequest, ServerResponse};
 use crate::entities::server::{self, ServerType};
 use crate::models::ServerProperties;
 use crate::repository;
-use crate::{fabric, forge};
+use crate::server_types::Server;
+use crate::server_types::{fabric::FabricServer, forge::ForgeServer};
+use crate::services::FileDownloader;
 
 /// Base directory where all server folders live.
 const SERVERS_DIR: &str = "./servers";
@@ -75,50 +77,27 @@ async fn write_eula(server: &server::Model) -> HttpResponse {
 /// Install a server according to its type.  On failure returns an `HttpResponse`
 /// that the caller should send back (the caller is responsible for cleanup).
 async fn install_server(
+	downloader: &FileDownloader,
 	req: &CreateServerRequest,
-	server_dir: &PathBuf,
+	_server_dir: &PathBuf,
 ) -> Result<(), HttpResponse> {
 	match req.server_type {
-		ServerType::Forge => install_forge(req, server_dir).await,
-		ServerType::Fabric => install_fabric(req, server_dir).await,
+		ServerType::Forge => install_server_type::<ForgeServer>(downloader, req).await,
+		ServerType::Fabric => install_server_type::<FabricServer>(downloader, req).await,
 		_ => Err(HttpResponse::BadRequest()
 			.body(format!("Unsupported server type: {:?}", req.server_type))),
 	}
 }
 
-async fn install_forge(
+async fn install_server_type<S: Server + Send>(
+	downloader: &FileDownloader,
 	req: &CreateServerRequest,
-	server_dir: &PathBuf,
 ) -> Result<(), HttpResponse> {
-	let combined = format!("{}-{}", req.minecraft_version, req.loader_version);
-	let installer_filename = format!("forge-{}-installer.jar", combined);
-	let installer_path = server_dir.join(&installer_filename);
-
-	let url = forge::installer_url(&combined);
-	log::info!("Downloading {url} …");
-	forge::download(&url, &installer_path)
+	S::new(req.name.as_str())
+		.install(&req.minecraft_version, &req.server_version, downloader)
 		.await
-		.map_err(|e| HttpResponse::BadGateway().body(format!("Download failed: {e}")))?;
-
-	log::info!("Running Forge installer …");
-	forge::run_installer(server_dir, &installer_filename)
-		.await
-		.map_err(|e| {
-			HttpResponse::InternalServerError().body(format!("Installation failed: {e}"))
-		})?;
-
-	// Remove the installer jar (keeps the server dir tidy)
-	let _ = tokio::fs::remove_file(&installer_path).await;
+		.map_err(|e| HttpResponse::InternalServerError().body(e.to_string()))?;
 	Ok(())
-}
-
-async fn install_fabric(
-	req: &CreateServerRequest,
-	server_dir: &PathBuf,
-) -> Result<(), HttpResponse> {
-	fabric::setup_server(server_dir, &req.minecraft_version, &req.loader_version)
-		.await
-		.map_err(|e| HttpResponse::BadGateway().body(e))
 }
 
 // ---------------------------------------------------------------------------
@@ -129,41 +108,37 @@ async fn install_fabric(
 pub async fn create_server(
 	body: web::Json<CreateServerRequest>,
 	db: web::Data<DatabaseConnection>,
+	downloader: web::Data<FileDownloader>,
 ) -> HttpResponse {
-	// 1. Validate name
 	let name = match sanitise_name(&body.name) {
 		Ok(n) => n,
 		Err(e) => return HttpResponse::BadRequest().body(e),
 	};
 
-	// 2. Check server does not already exist
 	match repository::exists_by_name(db.get_ref(), &name).await {
 		Ok(true) => return HttpResponse::Conflict().body("A server with this name already exists"),
 		Ok(false) => {}
 		Err(e) => return db_error(e),
 	}
 
-	// 3. Create the server directory
 	let server_dir = PathBuf::from(SERVERS_DIR).join(&name);
 	if let Err(e) = tokio::fs::create_dir_all(&server_dir).await {
 		return HttpResponse::InternalServerError()
 			.body(format!("Failed to create directory: {e}"));
 	}
 
-	// 4. Install the server according to its type
-	if let Err(e) = install_server(&body, &server_dir).await {
+	if let Err(e) = install_server(downloader.get_ref(), &body, &server_dir).await {
 		let _ = tokio::fs::remove_dir_all(&server_dir).await;
 		return e;
 	}
 
-	// 5. Insert into database
 	let server_type = body.server_type.clone();
 	match repository::create(
 		db.get_ref(),
 		&name,
 		server_type,
 		&body.minecraft_version,
-		&body.loader_version,
+		&body.server_version,
 	)
 	.await
 	{
@@ -174,7 +149,7 @@ pub async fn create_server(
 				name: model.name,
 				server_type: model.server_type,
 				minecraft_version: model.minecraft_version,
-				loader_version: model.loader_version,
+				server_version: model.server_version,
 			})
 		}
 		Err(e) => {
