@@ -30,8 +30,8 @@ impl ForgeServer {
 
 #[async_trait]
 impl Server for ForgeServer {
-	fn new(name: &str) -> Self {
-		let dir = PathBuf::from(SERVERS_DIR).join(name);
+	fn new(id: i32) -> Self {
+		let dir = PathBuf::from(SERVERS_DIR).join(id.to_string());
 		let mut launch_command = Command::new("java");
 		launch_command.current_dir(dir.clone());
 		Self {

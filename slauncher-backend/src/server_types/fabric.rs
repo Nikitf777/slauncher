@@ -15,8 +15,8 @@ impl FabricServer {
 
 #[async_trait]
 impl Server for FabricServer {
-	fn new(name: &str) -> FabricServer {
-		let dir = PathBuf::from(SERVERS_DIR).join(name);
+	fn new(id: i32) -> FabricServer {
+		let dir = PathBuf::from(SERVERS_DIR).join(id.to_string());
 		let mut launch_command = Command::new("java");
 		launch_command.current_dir(dir.clone());
 		launch_command.arg("-jar");

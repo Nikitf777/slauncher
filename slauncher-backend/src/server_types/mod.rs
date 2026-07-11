@@ -10,7 +10,7 @@ const SERVER_FILENAME: &str = "server";
 
 #[async_trait]
 pub trait Server {
-	fn new(name: &str) -> Self
+	fn new(id: i32) -> Self
 	where
 		Self: Sized;
 
@@ -18,7 +18,7 @@ pub trait Server {
 	where
 		Self: Sized,
 	{
-		let mut server = Self::new(&model.name);
+		let mut server = Self::new(model.id);
 		server.setup_launch_command(
 			SERVER_FILENAME,
 			&model.minecraft_version,

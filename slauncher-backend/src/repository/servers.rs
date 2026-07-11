@@ -33,6 +33,12 @@ pub async fn exists_by_name(db: &DatabaseConnection, name: &str) -> Result<bool,
 // Mutations
 // ---------------------------------------------------------------------------
 
+/// Delete a server by its primary key.
+pub async fn delete(db: &DatabaseConnection, id: i32) -> Result<(), DbErr> {
+	server::Entity::delete_by_id(id).exec(db).await?;
+	Ok(())
+}
+
 /// Insert a new server and return the persisted model (with the auto-generated id
 /// populated).
 pub async fn create(

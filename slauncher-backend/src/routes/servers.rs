@@ -17,18 +17,6 @@ const SERVERS_DIR: &str = "./servers";
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Sanitise a server name so it can safely be used as a folder name.
-fn sanitise_name(name: &str) -> Result<String, String> {
-	let ok = name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-');
-	if !ok {
-		return Err("Server name may only contain ASCII letters, digits, and hyphens".into());
-	}
-	if name.is_empty() {
-		return Err("Server name cannot be empty".into());
-	}
-	Ok(name.to_owned())
-}
-
 /// Convert a generic `DbErr` into a 500 response.
 fn db_error(e: sea_orm::DbErr) -> HttpResponse {
 	HttpResponse::InternalServerError().body(format!("Database error: {e}"))
@@ -61,7 +49,7 @@ async fn find_server_by_id(
 /// Shared implementation: write eula.txt for a server whose Model is already loaded.
 async fn write_eula(server: &server::Model) -> HttpResponse {
 	let eula_path = PathBuf::from(SERVERS_DIR)
-		.join(&server.name)
+		.join(server.id.to_string())
 		.join("eula.txt");
 	match tokio::fs::write(&eula_path, "eula=true\n").await {
 		Ok(_) => {
@@ -79,11 +67,11 @@ async fn write_eula(server: &server::Model) -> HttpResponse {
 async fn install_server(
 	downloader: &FileDownloader,
 	req: &CreateServerRequest,
-	_server_dir: &PathBuf,
+	server_id: i32,
 ) -> Result<(), HttpResponse> {
 	match req.server_type {
-		ServerType::Forge => install_server_type::<ForgeServer>(downloader, req).await,
-		ServerType::Fabric => install_server_type::<FabricServer>(downloader, req).await,
+		ServerType::Forge => install_server_type::<ForgeServer>(downloader, req, server_id).await,
+		ServerType::Fabric => install_server_type::<FabricServer>(downloader, req, server_id).await,
 		_ => Err(HttpResponse::BadRequest()
 			.body(format!("Unsupported server type: {:?}", req.server_type))),
 	}
@@ -92,8 +80,9 @@ async fn install_server(
 async fn install_server_type<S: Server + Send>(
 	downloader: &FileDownloader,
 	req: &CreateServerRequest,
+	server_id: i32,
 ) -> Result<(), HttpResponse> {
-	S::new(req.name.as_str())
+	S::new(server_id)
 		.install(&req.minecraft_version, &req.server_version, downloader)
 		.await
 		.map_err(|e| HttpResponse::InternalServerError().body(e.to_string()))?;
@@ -110,53 +99,50 @@ pub async fn create_server(
 	db: web::Data<DatabaseConnection>,
 	downloader: web::Data<FileDownloader>,
 ) -> HttpResponse {
-	let name = match sanitise_name(&body.name) {
-		Ok(n) => n,
-		Err(e) => return HttpResponse::BadRequest().body(e),
-	};
-
-	match repository::exists_by_name(db.get_ref(), &name).await {
+	match repository::exists_by_name(db.get_ref(), &body.name).await {
 		Ok(true) => return HttpResponse::Conflict().body("A server with this name already exists"),
 		Ok(false) => {}
 		Err(e) => return db_error(e),
 	}
 
-	let server_dir = PathBuf::from(SERVERS_DIR).join(&name);
-	if let Err(e) = tokio::fs::create_dir_all(&server_dir).await {
-		return HttpResponse::InternalServerError()
-			.body(format!("Failed to create directory: {e}"));
-	}
-
-	if let Err(e) = install_server(downloader.get_ref(), &body, &server_dir).await {
-		let _ = tokio::fs::remove_dir_all(&server_dir).await;
-		return e;
-	}
-
 	let server_type = body.server_type.clone();
-	match repository::create(
+	let model = match repository::create(
 		db.get_ref(),
-		&name,
+		&body.name,
 		server_type,
 		&body.minecraft_version,
 		&body.server_version,
 	)
 	.await
 	{
-		Ok(model) => {
-			log::info!("Created server '{}' (id={})", model.name, model.id);
-			HttpResponse::Created().json(ServerResponse {
-				id: model.id,
-				name: model.name,
-				server_type: model.server_type,
-				minecraft_version: model.minecraft_version,
-				server_version: model.server_version,
-			})
-		}
+		Ok(model) => model,
 		Err(e) => {
 			log::error!("Failed to insert server into DB: {e}");
-			db_error(e)
+			return db_error(e);
 		}
+	};
+
+	let server_dir = PathBuf::from(SERVERS_DIR).join(model.id.to_string());
+	if let Err(e) = tokio::fs::create_dir_all(&server_dir).await {
+		let _ = repository::delete(db.get_ref(), model.id).await;
+		return HttpResponse::InternalServerError()
+			.body(format!("Failed to create directory: {e}"));
 	}
+
+	if let Err(e) = install_server(downloader.get_ref(), &body, model.id).await {
+		let _ = tokio::fs::remove_dir_all(&server_dir).await;
+		let _ = repository::delete(db.get_ref(), model.id).await;
+		return e;
+	}
+
+	log::info!("Created server '{}' (id={})", model.name, model.id);
+	HttpResponse::Created().json(ServerResponse {
+		id: model.id,
+		name: model.name,
+		server_type: model.server_type,
+		minecraft_version: model.minecraft_version,
+		server_version: model.server_version,
+	})
 }
 
 #[post("/api/servers/by-name/{name}/eula")]
@@ -164,16 +150,11 @@ pub async fn accept_eula_by_name(
 	path: web::Path<String>,
 	db: web::Data<DatabaseConnection>,
 ) -> HttpResponse {
-	let name = match sanitise_name(&path.into_inner()) {
-		Ok(n) => n,
-		Err(e) => return HttpResponse::BadRequest().body(e),
-	};
-
+	let name = path.into_inner();
 	let server = match find_server_by_name(&name, db.get_ref()).await {
 		Ok(s) => s,
 		Err(resp) => return resp,
 	};
-
 	write_eula(&server).await
 }
 
@@ -256,7 +237,7 @@ async fn configure_properties(
 	}
 
 	let properties_path = PathBuf::from(SERVERS_DIR)
-		.join(&server.name)
+		.join(server.id.to_string())
 		.join("server.properties");
 
 	let content = match tokio::fs::read_to_string(&properties_path).await {
@@ -289,16 +270,11 @@ pub async fn configure_properties_by_name(
 	db: web::Data<DatabaseConnection>,
 	body: web::Json<ServerProperties>,
 ) -> HttpResponse {
-	let name = match sanitise_name(&path.into_inner()) {
-		Ok(n) => n,
-		Err(e) => return HttpResponse::BadRequest().body(e),
-	};
-
+	let name = path.into_inner();
 	let server = match find_server_by_name(&name, db.get_ref()).await {
 		Ok(s) => s,
 		Err(resp) => return resp,
 	};
-
 	configure_properties(&server, body).await
 }
 
@@ -324,7 +300,7 @@ pub async fn configure_properties_by_id(
 
 async fn read_properties(server: &server::Model) -> HttpResponse {
 	let properties_path = PathBuf::from(SERVERS_DIR)
-		.join(&server.name)
+		.join(server.id.to_string())
 		.join("server.properties");
 
 	let content = match tokio::fs::read_to_string(&properties_path).await {
@@ -344,16 +320,11 @@ pub async fn get_properties_by_name(
 	path: web::Path<String>,
 	db: web::Data<DatabaseConnection>,
 ) -> HttpResponse {
-	let name = match sanitise_name(&path.into_inner()) {
-		Ok(n) => n,
-		Err(e) => return HttpResponse::BadRequest().body(e),
-	};
-
+	let name = path.into_inner();
 	let server = match find_server_by_name(&name, db.get_ref()).await {
 		Ok(s) => s,
 		Err(resp) => return resp,
 	};
-
 	read_properties(&server).await
 }
 
